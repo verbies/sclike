@@ -1,0 +1,44 @@
+name: Build iPhone app
+on:
+  workflow_dispatch:
+    inputs:
+      site_url:
+        description: "Your player's web address, e.g. https://my-likes.vercel.app (leave empty to type it in the app on first launch)"
+        required: false
+        default: ""
+jobs:
+  ipa:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unpack ios-app.zip (if the app was uploaded as a zip)
+        run: if [ -f ios-app.zip ]; then unzip -q -o ios-app.zip; fi
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Make the Xcode project
+        working-directory: ios
+        run: xcodegen generate
+      - name: Build the app (unsigned)
+        working-directory: ios
+        env:
+          SITE: ${{ inputs.site_url }}
+        run: |
+          set -o pipefail
+          xcodebuild -project MyLikes.xcodeproj -scheme MyLikes -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            SITE_URL="$SITE" build | tail -n 40
+      - name: Package the .ipa
+        working-directory: ios
+        run: |
+          rm -rf Payload MyLikes.ipa
+          mkdir Payload
+          cp -R build/Build/Products/Release-iphoneos/MyLikes.app Payload/
+          zip -qry MyLikes.ipa Payload
+          ls -l MyLikes.ipa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MyLikes-ipa
+          path: ios/MyLikes.ipa
+          if-no-files-found: error
